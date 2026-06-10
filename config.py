@@ -29,8 +29,8 @@ class Config:
 
     # ── Feature extraction ────────────────────────────────────────────────
     feature_dir:  str = "data/features"
-    feature_dim:  int = 1024        # CLS[512] + PatchMean[512]
-    backbone_dim: int = 512         # CLIP ViT-B/32 hidden dim
+    feature_dim:  int = 1536        # CLS[768] + PatchMean[768]  (CLIP ViT-B/32)
+    backbone_dim: int = 768         # CLIP ViT-B/32 hidden dim
 
     # ── Backbone ──────────────────────────────────────────────────────────
     backbone:            str = "ViT-B-32"   # open_clip model name (~350MB)

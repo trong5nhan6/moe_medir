@@ -2,7 +2,7 @@
 Core MoE Specialization Module.
 
 Architecture:
-  Input [B, 1024]
+  Input [B, 1536]   (CLS[768] + PatchMean[768] from CLIP ViT-B/32)
       |
   Router (2-layer MLP) -> softmax -> top-k gating
       |
@@ -41,7 +41,7 @@ class MoESpecializationModule(nn.Module):
     Mixture-of-Experts module with top-k sparse routing.
 
     Args:
-        input_dim  : feature dimension from backbone (1024)
+        input_dim  : feature dimension from backbone (1536 for CLIP ViT-B/32)
         num_experts: total number of experts (8)
         top_k      : how many experts are activated per token (2)
         hidden_dim : hidden dim inside each expert (512)

@@ -4,12 +4,12 @@ Step 1 — Run ONCE before training.
 Loads CLIP ViT-B/32 (frozen, ~350MB), iterates over all 4 MedMNIST datasets × 3 splits,
 extracts 1024-dim features and saves them as .npy files.
 
-Feature = CLS token [512] concat mean(patch tokens) [512] = [1024]
+Feature = CLS token [768] concat mean(patch tokens) [768] = [1536]  (CLIP ViT-B/32)
   CLS captures global semantics
   PatchMean captures spatial average (richer than CLS alone)
 
 Saved files in data/features/:
-  {dataset}_{split}_feat.npy   float32 [N, 1024]
+  {dataset}_{split}_feat.npy   float32 [N, 1536]
   {dataset}_{split}_label.npy  int64   [N]  local class id (0-based per dataset)
 
 Usage: python extract_features.py
