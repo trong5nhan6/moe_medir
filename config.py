@@ -69,18 +69,18 @@ class Config:
     # ── Feature extraction ────────────────────────────────────────────────
     # "cls"    → CLS token only            → feature_dim = backbone_dim
     # "concat" → CLS + PatchMean concat    → feature_dim = backbone_dim * 2
-    feature_mode: str = "cls"
+    feature_mode: str = "concat"
 
     # Auto-set by __post_init__ — do NOT edit manually:
     backbone_dim: int = 768
-    feature_dim:  int = 768
+    feature_dim:  int = 1536
     feature_dir:  str = "data/features/clip_vitb32"
 
     # ── MoE head ──────────────────────────────────────────────────────────
     num_experts:   int   = 8
-    top_k:         int   = 4
+    top_k:         int   = 2
     expert_hidden: int   = 512
-    embed_dim:     int   = 256      # final L2-normalised retrieval embedding
+    embed_dim:     int   = 128      # final L2-normalised retrieval embedding
 
     # ── Training ──────────────────────────────────────────────────────────
     batch_size:    int   = 256
@@ -90,8 +90,7 @@ class Config:
     temperature:   float = 0.07     # SupCon temperature τ
     lambda_lb:      float = 0.01   # load-balance loss weight (token_choice only)
     lambda_orth:    float = 0.01   # expert weight orthogonality loss weight
-    lambda_affinity: float = 0.1  # Fisher routing diversity loss weight
-    lambda_spec:    float = 0.1   # modality routing classification loss weight
+    lambda_affinity: float = 0.1  # modality routing diversity loss weight
     warmup_epochs: int   = 5       # linear LR warmup before cosine decay
     feat_noise:    float = 0.01    # Gaussian noise std on input features
 

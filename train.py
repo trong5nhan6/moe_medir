@@ -16,13 +16,10 @@ Loss components (MoE only):
   lb_loss      Load-balance loss (token_choice mode only — expert_choice
                is balanced by construction, lb_loss is skipped)
   orth_loss    Expert weight orthogonality (NeurIPS 2025)
-  aff_loss     Fisher routing diversity — maximises between/within modality
-               routing variance ratio (proper Fisher criterion)
-  spec_loss    Modality routing classification — CrossEntropy on routing
-               distribution to predict which dataset a sample comes from;
-               directly trains router to be modality-discriminative
+  aff_loss     Modality routing diversity — maximises between-modality
+               routing variance (MI proxy, no extra learnable params)
 """
-import os, argparse, torch, torch.nn as nn, torch.nn.functional as F, pandas as pd, numpy as np
+import os, argparse, torch, torch.nn.functional as F, pandas as pd, numpy as np
 from tqdm import tqdm
 from pytorch_metric_learning import losses as pml_losses
 
@@ -78,14 +75,14 @@ print(f"Train batches/epoch: {len(train_loader)}")
 
 is_moe          = args.model == "moe"
 use_lb          = is_moe and CFG.routing_mode == "token_choice"
-use_expert_aux  = is_moe   # orth + affinity + spec apply to both routing modes
+use_expert_aux  = is_moe   # orth + affinity apply to both routing modes
 
 # ── Training loop ─────────────────────────────────────────────────────────
 best_map, history = 0.0, []
 
 for epoch in range(1, args.epochs + 1):
     model.train()
-    total_loss = total_sc = total_lb = total_orth = total_aff = total_spec = 0.0
+    total_loss = total_sc = total_lb = total_orth = total_aff = 0.0
 
     for feats, labels, ds_ids in tqdm(train_loader,
                                       desc=f"Epoch {epoch:3d}", leave=False):
@@ -106,25 +103,19 @@ for epoch in range(1, args.epochs + 1):
         lb_loss = load_balance_loss(router_logits) if use_lb \
                   else torch.tensor(0.0, device=device)
 
-        # Expert auxiliary losses (MoE only)
+        # Expert orthogonality + modality affinity (MoE only)
         if use_expert_aux and router_logits is not None:
             orth_loss = expert_orthogonality_loss(model.moe)
             aff_loss  = modality_affinity_loss(
                 router_logits, ds_ids, len(CFG.datasets))
-            # Spec loss: classify modality from routing distribution
-            # Trains router to be explicitly modality-discriminative
-            spec_logits = model.spec_head(F.softmax(router_logits, dim=-1))
-            spec_loss   = F.cross_entropy(spec_logits, ds_ids)
         else:
             orth_loss = torch.tensor(0.0, device=device)
             aff_loss  = torch.tensor(0.0, device=device)
-            spec_loss = torch.tensor(0.0, device=device)
 
         loss = (sc_loss
                 + CFG.lambda_lb       * lb_loss
                 + CFG.lambda_orth     * orth_loss
-                + CFG.lambda_affinity * aff_loss
-                + CFG.lambda_spec     * spec_loss)
+                + CFG.lambda_affinity * aff_loss)
 
         optim.zero_grad()
         loss.backward()
@@ -136,7 +127,6 @@ for epoch in range(1, args.epochs + 1):
         total_lb   += lb_loss.item()
         total_orth += orth_loss.item()
         total_aff  += aff_loss.item()
-        total_spec += spec_loss.item()
 
     sched.step()
     n = len(train_loader)
@@ -151,8 +141,7 @@ for epoch in range(1, args.epochs + 1):
                "sc_loss":   round(total_sc   / n, 4),
                "lb_loss":   round(total_lb   / n, 4),
                "orth_loss": round(total_orth / n, 4),
-               "aff_loss":  round(total_aff  / n, 4),
-               "spec_loss": round(total_spec / n, 4)}
+               "aff_loss":  round(total_aff  / n, 4)}
         for ds_name in CFG.datasets:
             for metric, val in results[ds_name].items():
                 row[f"{ds_name}.{metric}"] = val
@@ -162,8 +151,7 @@ for epoch in range(1, args.epochs + 1):
             f"{ds[:4]}={results[ds]['mAP@R']:.1f}" for ds in CFG.datasets)
         print(f"Ep {epoch:3d} | loss={avg_loss:.4f} "
               f"(sc={total_sc/n:.3f} lb={total_lb/n:.3f} "
-              f"orth={total_orth/n:.3f} aff={total_aff/n:.3f} "
-              f"spec={total_spec/n:.3f}) | "
+              f"orth={total_orth/n:.3f} aff={total_aff/n:.3f}) | "
               f"avg mAP@R={avg_map:.2f} | {per_ds}")
 
         if avg_map > best_map:
