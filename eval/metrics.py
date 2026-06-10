@@ -140,6 +140,51 @@ def evaluate_dataset(model, loader, device) -> dict:
     }
 
 
+@torch.no_grad()
+def evaluate_cross_dataset(model, test_loaders: dict, device) -> dict:
+    """
+    Cross-dataset retrieval: query from each dataset, gallery = all 4 datasets merged.
+
+    Uses global label offsets so same-class across datasets never collide.
+    Returns per-source-dataset mAP@R + overall avg_mAP@R.
+    """
+    model.eval()
+    all_embs, all_labels, all_ds_ids = [], [], []
+
+    for ds_name, loader in test_loaders.items():
+        offset = CFG.dataset_offsets[ds_name]
+        ds_idx = CFG.datasets.index(ds_name)
+        for feats, labels, _ in loader:
+            embs, _ = model(feats.to(device))
+            all_embs.append(embs.cpu())
+            local = labels if isinstance(labels, torch.Tensor) else torch.tensor(labels)
+            all_labels.append(local + offset)
+            all_ds_ids.append(torch.full((len(local),), ds_idx, dtype=torch.long))
+
+    embs   = torch.cat(all_embs,   dim=0)   # [N, D]
+    labels = torch.cat(all_labels, dim=0)   # [N]  global labels
+    ds_ids = torch.cat(all_ds_ids, dim=0)   # [N]
+
+    sim = embs @ embs.T
+    sim.fill_diagonal_(-1e9)
+    sorted_idx    = sim.argsort(dim=1, descending=True)
+    sorted_labels = labels[sorted_idx]
+    is_correct    = (sorted_labels == labels.unsqueeze(1))
+
+    results    = {}
+    map_scores = []
+    for idx, ds_name in enumerate(CFG.datasets):
+        mask = (ds_ids == idx)
+        if mask.sum() == 0:
+            continue
+        ds_map = _map_at_r(is_correct[mask])
+        results[ds_name] = {"mAP@R": ds_map}
+        map_scores.append(ds_map)
+
+    results["avg_mAP@R"] = round(float(np.mean(map_scores)), 2)
+    return results
+
+
 def evaluate_all(model, val_loaders: dict, device) -> dict:
     """
     Evaluate on all datasets.

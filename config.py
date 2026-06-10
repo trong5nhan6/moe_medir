@@ -49,6 +49,9 @@ class Config:
     weight_decay:  float = 1e-4
     temperature:   float = 0.07     # SupCon temperature τ
     lambda_lb:     float = 0.01     # load-balance loss weight
+    lambda_spec:   float = 0.1      # expert specialization loss weight
+    warmup_epochs: int   = 5        # linear LR warmup before cosine decay
+    feat_noise:    float = 0.01     # Gaussian noise std on input features
 
     # ── Evaluation ────────────────────────────────────────────────────────
     recall_k: List[int] = field(default_factory=lambda: [1, 5, 10])
