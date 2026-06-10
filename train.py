@@ -12,7 +12,7 @@ Outputs:
   results/history_{name}.csv               per-epoch train loss + val metrics
 
 Loss components (MoE only):
-  sc_loss      SupConLoss with MultiSimilarityMiner hard negative mining
+  sc_loss      SupConLoss over all in-batch pairs
   lb_loss      Load-balance loss (token_choice mode only — expert_choice
                is balanced by construction, lb_loss is skipped)
   orth_loss    Expert weight orthogonality (NeurIPS 2025)
@@ -21,7 +21,7 @@ Loss components (MoE only):
 """
 import os, argparse, torch, torch.nn.functional as F, pandas as pd, numpy as np
 from tqdm import tqdm
-from pytorch_metric_learning import losses as pml_losses, miners as pml_miners
+from pytorch_metric_learning import losses as pml_losses
 
 from config import CFG
 from utils import set_seed
@@ -55,9 +55,8 @@ model = MODEL_MAP[args.model]().to(device)
 n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 print(f"Trainable parameters: {n_params:,}")
 
-# ── Loss & miner ──────────────────────────────────────────────────────────
+# ── Loss ──────────────────────────────────────────────────────────────────
 supcon = pml_losses.SupConLoss(temperature=CFG.temperature)
-miner  = pml_miners.MultiSimilarityMiner(epsilon=0.1)
 
 # ── Optimiser & scheduler (linear warmup → cosine) ────────────────────────
 optim  = torch.optim.AdamW(model.parameters(),
@@ -98,9 +97,7 @@ for epoch in range(1, args.epochs + 1):
 
         embs, router_logits = model(feats)
 
-        # Hard negative mining → SupConLoss
-        hard_pairs = miner(embs, labels)
-        sc_loss    = supcon(embs, labels, hard_pairs)
+        sc_loss = supcon(embs, labels)
 
         # Load-balance loss (token_choice only)
         lb_loss = load_balance_loss(router_logits) if use_lb \
