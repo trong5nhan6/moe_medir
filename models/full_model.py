@@ -12,17 +12,20 @@ class MoEMedIR(nn.Module):
         self.moe = MoESpecializationModule(
             input_dim=CFG.feature_dim, num_experts=CFG.num_experts,
             top_k=CFG.top_k, hidden_dim=CFG.expert_hidden, output_dim=256)
+        # Shared residual: ensures every token has a base representation
+        # regardless of expert-choice coverage. Analogous to the "shared expert"
+        # in DeepSeek-MoE — experts provide domain-specific delta on top of this.
+        self.skip_proj = nn.Linear(CFG.feature_dim, 256, bias=False)
         self.proj = nn.Sequential(
             nn.Linear(256, CFG.embed_dim),
             nn.LayerNorm(CFG.embed_dim),
         )
-        # Auxiliary head: router logits → predict medical modality (dataset)
-        self.spec_head = nn.Linear(CFG.num_experts, len(CFG.datasets))
 
     def forward(self, x):
-        x = self.input_drop(x)
+        x        = self.input_drop(x)
         moe_out, router_logits = self.moe(x)
-        emb = F.normalize(self.proj(moe_out), dim=-1)
+        combined = moe_out + self.skip_proj(x)       # residual fusion
+        emb      = F.normalize(self.proj(combined), dim=-1)
         return emb, router_logits
 
 

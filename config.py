@@ -48,10 +48,18 @@ class Config:
     lr:            float = 1e-4
     weight_decay:  float = 1e-4
     temperature:   float = 0.07     # SupCon temperature τ
-    lambda_lb:     float = 0.01     # load-balance loss weight
-    lambda_spec:   float = 0.1      # expert specialization loss weight
+    lambda_lb:     float = 0.01     # load-balance loss weight (token_choice only)
+    lambda_orth:   float = 0.01     # expert weight orthogonality loss weight
+    lambda_affinity: float = 0.1    # modality routing diversity loss weight
     warmup_epochs: int   = 5        # linear LR warmup before cosine decay
     feat_noise:    float = 0.01     # Gaussian noise std on input features
+
+    # ── MoE Routing mode ──────────────────────────────────────────────────
+    # "token_choice"  : each token selects top-k experts (Switch Transformer)
+    # "expert_choice" : each expert selects top-c tokens (NeurIPS 2022)
+    #                   → perfect load balance by construction, no lb_loss needed
+    routing_mode:    str   = "expert_choice"
+    capacity_factor: float = 2.0   # expert_choice: slots/expert = capacity_factor*B/K
 
     # ── Evaluation ────────────────────────────────────────────────────────
     recall_k: List[int] = field(default_factory=lambda: [1, 5, 10])
