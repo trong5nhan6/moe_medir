@@ -25,7 +25,7 @@ from config import CFG
 
 RESULTS  = CFG.results_dir
 DATASETS = CFG.datasets
-METRICS  = ["mAP@R", "R@1", "R@5", "R@10"]
+METRICS  = ["mAP@R", "MRR", "R@1", "R@5", "R@10", "MPR@1", "MPR@5", "MPR@10"]
 
 # Dataset short names for table columns
 DS_SHORT = {

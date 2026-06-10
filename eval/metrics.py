@@ -122,21 +122,21 @@ def evaluate_dataset(model, loader, device) -> dict:
         hit = is_correct[:, :k].any(dim=1).float()
         recall[f"R@{k}"] = round(hit.mean().item() * 100, 2)
 
-    # ── Precision@K ───────────────────────────────────────────────────────
-    precision = {}
+    # ── MPR@K (Mean Precision at K) ───────────────────────────────────────
+    # MPR@K = fraction of top-K results that are correct class, averaged over queries
+    mpr = {}
     for k in CFG.recall_k:
-        # fraction of top-K that are correct
         p_at_k = is_correct[:, :k].float().mean(dim=1)   # [N]
-        precision[f"P@{k}"] = round(p_at_k.mean().item() * 100, 2)
+        mpr[f"MPR@{k}"] = round(p_at_k.mean().item() * 100, 2)
 
     # ── mAP@R (pure PyTorch, no faiss) ───────────────────────────────────
     map_r = _map_at_r(is_correct)
 
     return {
-        "mAP@R": map_r,
-        "MRR":   mrr,
-        **recall,       # R@1, R@5, R@10
-        **precision,    # P@1, P@5, P@10
+        "mAP@R":  map_r,
+        "MRR":    mrr,
+        **recall,   # R@1, R@5, R@10
+        **mpr,      # MPR@1, MPR@5, MPR@10
     }
 
 

@@ -21,7 +21,7 @@ model.load_state_dict(torch.load(ckpt, map_location=device))
 model.eval()
 print(f"Loaded: {ckpt}\n")
 
-METRICS = ["mAP@R", "MRR", "R@1", "R@5", "R@10", "P@1", "P@5", "P@10"]
+METRICS = ["mAP@R", "MRR", "R@1", "R@5", "R@10", "MPR@1", "MPR@5", "MPR@10"]
 
 test_loaders = get_loaders("test")
 rows, map_scores = [], []

@@ -1,5 +1,6 @@
 # Features & checkpoints (large files)
 data/features/
+data/features.zip
 results/checkpoints/
 results/*.csv
 results/*.tex

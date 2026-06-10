@@ -55,9 +55,11 @@ def run_zeroshot(model_name: str):
     model = ZeroShotModel(use_dims=CONFIGS[model_name]).to(device).eval()
     test_loaders = get_loaders("test")
 
+    METRICS = ["mAP@R", "MRR", "R@1", "R@5", "R@10", "MPR@1", "MPR@5", "MPR@10"]
+
     rows, map_scores = [], []
     print(f"\n[Zero-shot {model_name}]")
-    header = f"{'Dataset':<15} {'mAP@R':>8} {'R@1':>8} {'R@5':>8} {'R@10':>8}"
+    header = f"{'Dataset':<15}" + "".join(f"{m:>8}" for m in METRICS)
     print(header)
     print("-" * len(header))
 
@@ -65,13 +67,13 @@ def run_zeroshot(model_name: str):
         r = evaluate_dataset(model, loader, device)
         rows.append({"Dataset": ds_name, "model": model_name, **r})
         map_scores.append(r["mAP@R"])
-        print(f"{ds_name:<15} {r['mAP@R']:>8.2f} "
-              f"{r['R@1']:>8.2f} {r['R@5']:>8.2f} {r['R@10']:>8.2f}")
+        vals = "".join(f"{r.get(m, 0):>8.2f}" for m in METRICS)
+        print(f"{ds_name:<15}{vals}")
 
     avg = round(float(np.mean(map_scores)), 2)
     rows.append({"Dataset": "Average", "model": model_name, "mAP@R": avg})
     print("-" * len(header))
-    print(f"{'Average':<15} {avg:>8.2f}")
+    print(f"{'Average':<15}{avg:>8.2f}")
 
     out = os.path.join(CFG.results_dir, f"zeroshot_{model_name}.csv")
     pd.DataFrame(rows).to_csv(out, index=False)
