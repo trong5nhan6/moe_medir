@@ -1,117 +1,188 @@
 """
-Step 1 — Run ONCE before training.
+Step 1 — Run ONCE per backbone before training.
 
-Loads CLIP ViT-B/32 (frozen, ~350MB), iterates over all 4 MedMNIST datasets × 3 splits,
-extracts 1536-dim features and saves them as .npy files.
+Loads the backbone (frozen), iterates over all 4 MedMNIST datasets × 3 splits,
+extracts features and saves them as .npy files.
 
-Feature = CLS token [768] concat mean(patch tokens) [768] = [1536]  (CLIP ViT-B/32)
-  CLS captures global semantics
-  PatchMean captures spatial average (richer than CLS alone)
+Supported backbones (set in config.py → backbone):
+  clip_vitb32    CLIP ViT-B/32 (OpenAI)
+                   CLS[768] + PatchMean[768] = 1536  |  CLS only = 768
+  biomedclip     BiomedCLIP ViT-B/16 (Microsoft, PubMed-pretrained)
+                   CLS[768] + PatchMean[768] = 1536  |  CLS only = 768
+  dinov2_vitb14  DINOv2 ViT-B/14 (Meta, self-supervised)
+                   CLS[768] + PatchMean[768] = 1536  |  CLS only = 768
 
-Saved files in data/features/:
-  {dataset}_{split}_feat.npy   float32 [N, 1536]
+Features are always saved as [N, 1536] (concat) regardless of feature_mode —
+feature_mode slicing happens at load time in data/dataset.py.
+
+Saved files in data/features/{backbone}/:
+  {dataset}_{split}_feat.npy   float32 [N, backbone_dim*2]
   {dataset}_{split}_label.npy  int64   [N]  local class id (0-based per dataset)
 
-Usage: python extract_features.py
-Estimated time: ~5 min GPU, ~20 min CPU
-Disk usage: ~1 GB total
+Usage:
+  python extract_features.py              # uses backbone from config.py
+  python extract_features.py --backbone biomedclip
+  python extract_features.py --backbone dinov2_vitb14
+
+Estimated time: ~5 min GPU, ~20 min CPU per backbone
 """
-import os, torch, numpy as np
+import os, argparse, torch, numpy as np
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torchvision import transforms
 import medmnist
 from medmnist import INFO
-import open_clip
 
-from config import CFG
+from config import CFG, BACKBONE_REGISTRY
 
-# CLIP ViT-B/32 standard normalisation (same as OpenAI CLIP)
-CLIP_MEAN = (0.48145466, 0.4578275,  0.40821073)
-CLIP_STD  = (0.26862954, 0.26130258, 0.27577711)
+# ── Image normalisation stats per backbone ────────────────────────────────────
+NORM_STATS = {
+    "clip_vitb32":    ((0.48145466, 0.4578275,  0.40821073),
+                       (0.26862954, 0.26130258, 0.27577711)),
+    "biomedclip":     ((0.48145466, 0.4578275,  0.40821073),
+                       (0.26862954, 0.26130258, 0.27577711)),
+    "dinov2_vitb14":  ((0.485, 0.456, 0.406),
+                       (0.229, 0.224, 0.225)),
+}
 
 
-def get_transform(n_channels: int):
-    """Handle grayscale (1ch) and RGB (3ch) datasets."""
+# ── Backbone loaders ──────────────────────────────────────────────────────────
+
+def load_backbone(backbone: str, device):
+    """Load model. Returns (model, loader_type)."""
+    info = BACKBONE_REGISTRY[backbone]
+
+    if info["loader"] == "open_clip":
+        import open_clip
+        print(f"  Loading {info['model_name']} (pretrained={info['pretrained']}) via open_clip...")
+        model, _, _ = open_clip.create_model_and_transforms(
+            info["model_name"], pretrained=info["pretrained"]
+        )
+        return model.to(device).eval(), "open_clip"
+
+    elif info["loader"] == "open_clip_hub":
+        import open_clip
+        print(f"  Loading {info['model_name']} via open_clip hub...")
+        model, _, _ = open_clip.create_model_and_transforms(info["model_name"])
+        return model.to(device).eval(), "open_clip"
+
+    elif info["loader"] == "hf_dinov2":
+        from transformers import AutoModel
+        print(f"  Loading {info['model_name']} via HuggingFace transformers...")
+        model = AutoModel.from_pretrained(info["model_name"])
+        return model.to(device).eval(), "hf_dinov2"
+
+    else:
+        raise ValueError(f"Unknown loader type: {info['loader']}")
+
+
+# ── Feature extraction ────────────────────────────────────────────────────────
+
+@torch.no_grad()
+def extract_batch(model, imgs: torch.Tensor, loader_type: str) -> torch.Tensor:
+    """
+    Extract [B, dim*2] features (CLS + PatchMean) for a batch of images.
+    Always returns full concat features; slicing to CLS-only happens in dataset.py.
+    """
+    if loader_type == "open_clip":
+        vis = model.visual
+        # Patch embedding
+        x = vis.conv1(imgs)                                          # [B, D, H, W]
+        x = x.reshape(x.shape[0], x.shape[1], -1).permute(0, 2, 1) # [B, L, D]
+        # Prepend CLS token
+        cls_tok = vis.class_embedding.unsqueeze(0).unsqueeze(0).expand(x.shape[0], -1, -1)
+        x = torch.cat([cls_tok, x], dim=1)                          # [B, L+1, D]
+        x = x + vis.positional_embedding
+        x = vis.ln_pre(x)
+        x = vis.transformer(x)
+        x = vis.ln_post(x)
+        cls        = x[:, 0, :]                                      # [B, 768]
+        patch_mean = x[:, 1:, :].mean(dim=1)                        # [B, 768]
+
+    elif loader_type == "hf_dinov2":
+        outputs    = model(pixel_values=imgs)
+        hidden     = outputs.last_hidden_state                       # [B, L+1, 768]
+        cls        = hidden[:, 0, :]                                 # [B, 768]
+        patch_mean = hidden[:, 1:, :].mean(dim=1)                   # [B, 768]
+
+    else:
+        raise ValueError(f"Unknown loader_type: {loader_type}")
+
+    return torch.cat([cls, patch_mean], dim=-1)                      # [B, 1536]
+
+
+# ── Per-dataset extraction ────────────────────────────────────────────────────
+
+def get_transform(n_channels: int, backbone: str):
+    mean, std = NORM_STATS[backbone]
     base = [
         transforms.Resize((CFG.image_size, CFG.image_size),
                           interpolation=transforms.InterpolationMode.BICUBIC),
     ]
     if n_channels == 1:
         base.append(transforms.Grayscale(num_output_channels=3))
-    base += [
-        transforms.ToTensor(),
-        transforms.Normalize(CLIP_MEAN, CLIP_STD),
-    ]
+    base += [transforms.ToTensor(), transforms.Normalize(mean, std)]
     return transforms.Compose(base)
 
 
 @torch.no_grad()
-def extract_and_save(model, dataset_name: str, split: str, device):
+def extract_and_save(model, loader_type: str, dataset_name: str,
+                     split: str, backbone: str, device):
     info       = INFO[dataset_name]
     n_channels = info["n_channels"]
-    transform  = get_transform(n_channels)
+    transform  = get_transform(n_channels, backbone)
 
     DataClass = getattr(medmnist, info["python_class"])
-    ds = DataClass(split=split, transform=transform,
-                   download=True, size=28)   # download 28px, transform resizes to 224
+    ds = DataClass(split=split, transform=transform, download=True, size=28)
     loader = DataLoader(ds, batch_size=128, shuffle=False,
                         num_workers=4, pin_memory=True)
 
     all_feats, all_labels = [], []
-
-    for imgs, labels in tqdm(loader,
-                             desc=f"  {dataset_name}/{split}", leave=False):
-        imgs = imgs.to(device)                                   # [B, 3, 224, 224]
-
-        # CLIP ViT-B/32: visual transformer forward
-        # model.visual returns final CLS embedding by default
-        # To get patch tokens, use the internal transformer
-        vis   = model.visual
-        x     = vis.conv1(imgs)                                  # patch embed
-        x     = x.reshape(x.shape[0], x.shape[1], -1).permute(0, 2, 1)  # [B, L, D]
-        x     = torch.cat([vis.class_embedding.unsqueeze(0).unsqueeze(0)
-                            .expand(x.shape[0], -1, -1), x], dim=1)      # prepend CLS
-        x     = x + vis.positional_embedding
-        x     = vis.ln_pre(x)
-        x     = vis.transformer(x)                               # [B, L+1, D]
-        x     = vis.ln_post(x)
-
-        cls        = x[:, 0, :]                                  # [B, 768]
-        patch_mean = x[:, 1:, :].mean(dim=1)                    # [B, 768]
-        feat       = torch.cat([cls, patch_mean], dim=-1)        # [B, 1536]
-
+    for imgs, labels in tqdm(loader, desc=f"  {dataset_name}/{split}", leave=False):
+        feat = extract_batch(model, imgs.to(device), loader_type)
         all_feats.append(feat.cpu().numpy())
-        all_labels.append(labels.squeeze(-1).numpy())   # medmnist returns [N,1]
+        all_labels.append(labels.squeeze(-1).numpy())
 
-    feats  = np.concatenate(all_feats,  axis=0).astype(np.float32)
-    labels = np.concatenate(all_labels, axis=0).astype(np.int64)
+    feats  = np.concatenate(all_feats).astype(np.float32)
+    labels = np.concatenate(all_labels).astype(np.int64)
 
-    os.makedirs(CFG.feature_dir, exist_ok=True)
-    np.save(os.path.join(CFG.feature_dir, f"{dataset_name}_{split}_feat.npy"),  feats)
-    np.save(os.path.join(CFG.feature_dir, f"{dataset_name}_{split}_label.npy"), labels)
-    print(f"    {dataset_name}/{split}: features {feats.shape}  labels {labels.shape}")
+    out_dir = CFG.feature_dir
+    os.makedirs(out_dir, exist_ok=True)
+    np.save(os.path.join(out_dir, f"{dataset_name}_{split}_feat.npy"),  feats)
+    np.save(os.path.join(out_dir, f"{dataset_name}_{split}_label.npy"), labels)
+    print(f"    {dataset_name}/{split}: {feats.shape}  labels {labels.shape}")
 
+
+# ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--backbone", default=None,
+                        choices=list(BACKBONE_REGISTRY.keys()),
+                        help="Override backbone (default: from config.py)")
+    args = parser.parse_args()
 
-    print(f"Loading CLIP {CFG.backbone} (pretrained={CFG.backbone_pretrained})...")
-    model, _, _ = open_clip.create_model_and_transforms(
-        CFG.backbone, pretrained=CFG.backbone_pretrained
-    )
-    model = model.to(device).eval()
-    n_params = sum(p.numel() for p in model.visual.parameters()) / 1e6
-    print(f"CLIP visual encoder loaded. ({n_params:.0f}M params)\n")
+    backbone = args.backbone or CFG.backbone
+    info     = BACKBONE_REGISTRY[backbone]
+    device   = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    print(f"Backbone  : {backbone}")
+    print(f"Note      : {info['note']}")
+    print(f"Feature dir: data/features/{backbone}/")
+    print(f"Device    : {device}")
+    print()
+
+    model, loader_type = load_backbone(backbone, device)
+    n_params = sum(p.numel() for p in model.parameters()) / 1e6
+    print(f"Loaded. ({n_params:.0f}M params)\n")
 
     for ds_name in CFG.datasets:
         print(f"[{ds_name}]")
         for split in ["train", "val", "test"]:
-            extract_and_save(model, ds_name, split, device)
+            extract_and_save(model, loader_type, ds_name, split, backbone, device)
         print()
 
-    print("Done. Features saved to:", CFG.feature_dir)
+    print(f"Done. Features saved to: data/features/{backbone}/")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,40 @@
 from dataclasses import dataclass, field
 from typing import List, Dict
 
+# ── Backbone registry ─────────────────────────────────────────────────────────
+# Switch backbone by changing Config.backbone — everything else auto-updates.
+# After switching, re-run: python extract_features.py
+#
+# loader types:
+#   "open_clip"      open_clip.create_model_and_transforms(model_name, pretrained=pretrained)
+#   "open_clip_hub"  open_clip.create_model_and_transforms(model_name)  (no pretrained arg)
+#   "hf_dinov2"      transformers.AutoModel.from_pretrained(model_name)
+#
+BACKBONE_REGISTRY: Dict[str, dict] = {
+    "clip_vitb32": {
+        "dim":        768,
+        "loader":     "open_clip",
+        "model_name": "ViT-B-32",
+        "pretrained": "openai",
+        "note":       "CLIP ViT-B/32 — general vision-language (OpenAI, ~350 MB)",
+    },
+    "biomedclip": {
+        "dim":        768,
+        "loader":     "open_clip_hub",
+        "model_name": "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
+        "pretrained": None,
+        "note":       "BiomedCLIP ViT-B/16 — 15 M PubMed biomedical images (Microsoft)",
+    },
+    "dinov2_vitb14": {
+        "dim":        768,
+        "loader":     "hf_dinov2",
+        "model_name": "facebook/dinov2-base",
+        "pretrained": None,
+        "note":       "DINOv2 ViT-B/14 — self-supervised, strong visual features (Meta)",
+    },
+}
+
+
 @dataclass
 class Config:
     # ── Datasets ──────────────────────────────────────────────────────────
@@ -27,17 +61,20 @@ class Config:
     # Balanced sampling: same #samples per dataset per epoch
     samples_per_dataset: int = 1000
 
-    # ── Feature extraction ────────────────────────────────────────────────
-    feature_dir:  str = "data/features"
-    # "cls"    → only CLS token          → feature_dim = 768
-    # "concat" → CLS + PatchMean concat  → feature_dim = 1536
-    feature_mode: str = "concat"
-    feature_dim:  int = 1536        # auto-set by __post_init__ based on feature_mode
-    backbone_dim: int = 768         # CLIP ViT-B/32 hidden dim per token
-
     # ── Backbone ──────────────────────────────────────────────────────────
-    backbone:            str = "ViT-B-32"   # open_clip model name (~350MB)
-    backbone_pretrained: str = "openai"     # pretrained weights
+    # Change ONLY this field to switch backbone (see BACKBONE_REGISTRY above).
+    # backbone_dim, feature_dim, feature_dir are auto-set in __post_init__.
+    backbone: str = "clip_vitb32"
+
+    # ── Feature extraction ────────────────────────────────────────────────
+    # "cls"    → CLS token only            → feature_dim = backbone_dim
+    # "concat" → CLS + PatchMean concat    → feature_dim = backbone_dim * 2
+    feature_mode: str = "cls"
+
+    # Auto-set by __post_init__ — do NOT edit manually:
+    backbone_dim: int = 768
+    feature_dim:  int = 768
+    feature_dir:  str = "data/features/clip_vitb32"
 
     # ── MoE head ──────────────────────────────────────────────────────────
     num_experts:   int   = 8
@@ -51,12 +88,12 @@ class Config:
     lr:            float = 1e-4
     weight_decay:  float = 1e-4
     temperature:   float = 0.07     # SupCon temperature τ
-    lambda_lb:      float = 0.01    # load-balance loss weight (token_choice only)
-    lambda_orth:    float = 0.01    # expert weight orthogonality loss weight
-    lambda_affinity: float = 0.1   # Fisher routing diversity loss weight
-    lambda_spec:    float = 0.1    # modality routing classification loss weight
-    warmup_epochs: int   = 5        # linear LR warmup before cosine decay
-    feat_noise:    float = 0.01     # Gaussian noise std on input features
+    lambda_lb:      float = 0.01   # load-balance loss weight (token_choice only)
+    lambda_orth:    float = 0.01   # expert weight orthogonality loss weight
+    lambda_affinity: float = 0.1  # Fisher routing diversity loss weight
+    lambda_spec:    float = 0.1   # modality routing classification loss weight
+    warmup_epochs: int   = 5       # linear LR warmup before cosine decay
+    feat_noise:    float = 0.01    # Gaussian noise std on input features
 
     # ── MoE Routing mode ──────────────────────────────────────────────────
     # "token_choice"  : each token selects top-k experts (Switch Transformer)
@@ -75,12 +112,19 @@ class Config:
     checkpoint_dir: str = "results/checkpoints"
     results_dir:    str = "results"
 
-
     def __post_init__(self):
-        if self.feature_mode == "cls":
-            self.feature_dim = self.backbone_dim           # 768
-        else:
-            self.feature_dim = self.backbone_dim * 2      # 1536
+        info = BACKBONE_REGISTRY.get(self.backbone)
+        if info is None:
+            raise ValueError(
+                f"Unknown backbone '{self.backbone}'. "
+                f"Valid: {list(BACKBONE_REGISTRY.keys())}"
+            )
+        self.backbone_dim = info["dim"]
+        self.feature_dir  = f"data/features/{self.backbone}"
+        self.feature_dim  = (
+            self.backbone_dim if self.feature_mode == "cls"
+            else self.backbone_dim * 2
+        )
 
 
 CFG = Config()
