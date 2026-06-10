@@ -1,0 +1,34 @@
+# Features & checkpoints (large files)
+data/features/
+results/checkpoints/
+results/*.csv
+results/*.tex
+results/*.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# Model cache
+.cache/
+*.pt
+*.pth
+
+# MedMNIST raw data
+*.npz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,126 @@
+"""
+Main training script.
+
+Usage:
+  python train.py                          # train MoE (default)
+  python train.py --model linear           # train Linear baseline
+  python train.py --model mlp              # train MLP baseline
+  python train.py --model moe --epochs 30  # fewer epochs (fast debug)
+
+Outputs:
+  results/checkpoints/best_{name}.pt       best checkpoint by avg val mAP@R
+  results/history_{name}.csv               per-epoch train loss + val metrics
+"""
+import os, argparse, torch, pandas as pd, numpy as np
+from tqdm import tqdm
+from pytorch_metric_learning import losses as pml_losses
+
+from config import CFG
+from utils import set_seed
+from data.dataset import get_loaders
+from models.full_model import MoEMedIR, LinearBaseline, MLPBaseline
+from losses.load_balance import load_balance_loss
+from eval.metrics import evaluate_all
+
+os.makedirs(CFG.checkpoint_dir, exist_ok=True)
+os.makedirs(CFG.results_dir,    exist_ok=True)
+
+# ── Args ──────────────────────────────────────────────────────────────────
+parser = argparse.ArgumentParser()
+parser.add_argument("--model",  default="moe", choices=["moe", "linear", "mlp"])
+parser.add_argument("--epochs", type=int, default=CFG.epochs)
+parser.add_argument("--name",   default=None,
+                    help="run name (used for checkpoint/csv filenames)")
+args = parser.parse_args()
+
+run_name = args.name or args.model
+device   = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Fix all random seeds for reproducibility
+set_seed(CFG.seed)
+print(f"Model: {run_name}  |  Device: {device}  |  Seed: {CFG.seed}")
+
+# ── Model ─────────────────────────────────────────────────────────────────
+MODEL_MAP = {"moe": MoEMedIR, "linear": LinearBaseline, "mlp": MLPBaseline}
+model = MODEL_MAP[args.model]().to(device)
+n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Trainable parameters: {n_params:,}")
+
+# ── Loss ──────────────────────────────────────────────────────────────────
+supcon = pml_losses.SupConLoss(temperature=CFG.temperature)
+
+# ── Optimiser & scheduler ─────────────────────────────────────────────────
+optim = torch.optim.AdamW(model.parameters(),
+                          lr=CFG.lr, weight_decay=CFG.weight_decay)
+sched = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=args.epochs)
+
+# ── Data ──────────────────────────────────────────────────────────────────
+train_loader = get_loaders("train")
+val_loaders  = get_loaders("val")
+print(f"Train batches/epoch: {len(train_loader)}")
+
+# ── Training loop ─────────────────────────────────────────────────────────
+best_map, history = 0.0, []
+
+for epoch in range(1, args.epochs + 1):
+    model.train()
+    total_loss, total_sc, total_lb = 0.0, 0.0, 0.0
+
+    for feats, labels, _ in tqdm(train_loader,
+                                 desc=f"Epoch {epoch:3d}", leave=False):
+        feats  = feats.to(device)
+        labels = torch.tensor(labels, dtype=torch.long).to(device) \
+                 if not isinstance(labels, torch.Tensor) else labels.to(device)
+
+        embs, router_logits = model(feats)
+
+        sc_loss = supcon(embs, labels)
+        lb_loss = load_balance_loss(router_logits) \
+                  if router_logits is not None else torch.tensor(0.0)
+        loss = sc_loss + CFG.lambda_lb * lb_loss
+
+        optim.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optim.step()
+
+        total_loss += loss.item()
+        total_sc   += sc_loss.item()
+        total_lb   += lb_loss.item() if router_logits is not None else 0.0
+
+    sched.step()
+    avg_loss = total_loss / len(train_loader)
+
+    # ── Validation every 5 epochs ─────────────────────────────────────────
+    if epoch % 5 == 0 or epoch == args.epochs:
+        results  = evaluate_all(model, val_loaders, device)
+        avg_map  = results["avg_mAP@R"]
+
+        # Build flat history row: one column per dataset × metric
+        row = {"epoch": epoch, "loss": round(avg_loss, 4),
+               "avg_mAP@R": avg_map}
+        for ds_name in CFG.datasets:
+            for metric, val in results[ds_name].items():
+                row[f"{ds_name}.{metric}"] = val
+        history.append(row)
+
+        # Console summary
+        per_ds = "  ".join(
+            f"{ds[:4]}={results[ds]['mAP@R']:.1f}"
+            for ds in CFG.datasets
+        )
+        print(f"Ep {epoch:3d} | loss={avg_loss:.4f} | "
+              f"avg mAP@R={avg_map:.2f} | {per_ds}")
+
+        # Save best checkpoint
+        if avg_map > best_map:
+            best_map = avg_map
+            ckpt = os.path.join(CFG.checkpoint_dir, f"best_{run_name}.pt")
+            torch.save(model.state_dict(), ckpt)
+            print(f"         -> New best: {best_map:.2f}  saved to {ckpt}")
+
+# ── Save history ──────────────────────────────────────────────────────────
+hist_path = os.path.join(CFG.results_dir, f"history_{run_name}.csv")
+pd.DataFrame(history).to_csv(hist_path, index=False)
+print(f"\nTraining done. Best val mAP@R: {best_map:.2f}")
+print(f"History saved: {hist_path}")
