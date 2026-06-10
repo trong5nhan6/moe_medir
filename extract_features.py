@@ -26,7 +26,7 @@ Usage:
 
 Estimated time: ~5 min GPU, ~20 min CPU per backbone
 """
-import os, argparse, torch, numpy as np
+import os, argparse, zipfile, torch, numpy as np
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -183,6 +183,18 @@ def main():
         print()
 
     print(f"Done. Features saved to: data/features/{backbone}/")
+
+    # Auto-zip for easy upload to Kaggle / Drive
+    zip_path = f"data/features_{backbone}.zip"
+    feat_dir = f"data/features/{backbone}"
+    print(f"\nZipping features → {zip_path} ...")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname in sorted(os.listdir(feat_dir)):
+            if fname.endswith(".npy"):
+                zf.write(os.path.join(feat_dir, fname),
+                         arcname=os.path.join(backbone, fname))
+    size_mb = os.path.getsize(zip_path) / 1e6
+    print(f"Zip saved: {zip_path}  ({size_mb:.1f} MB)")
 
 
 if __name__ == "__main__":

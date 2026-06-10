@@ -19,7 +19,7 @@ Loss components (MoE only):
   aff_loss     Modality routing diversity — maximises between-modality
                routing variance (MI proxy, no extra learnable params)
 """
-import os, argparse, torch, torch.nn.functional as F, pandas as pd, numpy as np
+import os, argparse, json, dataclasses, torch, torch.nn.functional as F, pandas as pd, numpy as np
 from tqdm import tqdm
 from pytorch_metric_learning import losses as pml_losses
 
@@ -47,7 +47,8 @@ device   = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 set_seed(CFG.seed)
 print(f"Model: {run_name}  |  Device: {device}  |  Seed: {CFG.seed}")
-print(f"Routing: {CFG.routing_mode}  |  capacity_factor: {CFG.capacity_factor}")
+print(f"Backbone : {CFG.backbone}  |  feature_mode={CFG.feature_mode}  |  feature_dim={CFG.feature_dim}")
+print(f"Routing  : {CFG.routing_mode}  |  top_k={CFG.top_k}  |  embed_dim={CFG.embed_dim}")
 
 # ── Model ─────────────────────────────────────────────────────────────────
 MODEL_MAP = {"moe": MoEMedIR, "linear": LinearBaseline, "mlp": MLPBaseline}
@@ -163,5 +164,15 @@ for epoch in range(1, args.epochs + 1):
 # ── Save history ──────────────────────────────────────────────────────────
 hist_path = os.path.join(CFG.results_dir, f"history_{run_name}.csv")
 pd.DataFrame(history).to_csv(hist_path, index=False)
+
+# ── Save config snapshot alongside results ────────────────────────────────
+cfg_dict = dataclasses.asdict(CFG)
+cfg_dict["run_name"]  = run_name
+cfg_dict["best_mAP@R"] = best_map
+cfg_path = os.path.join(CFG.results_dir, f"config_{run_name}.json")
+with open(cfg_path, "w") as f:
+    json.dump(cfg_dict, f, indent=2)
+
 print(f"\nTraining done. Best val mAP@R: {best_map:.2f}")
-print(f"History saved: {hist_path}")
+print(f"History saved : {hist_path}")
+print(f"Config saved  : {cfg_path}")
