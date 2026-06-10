@@ -2,7 +2,7 @@
 Compile all experiment results into the main comparison table.
 
 Reads:
-  results/zeroshot_biomedclip.csv
+  results/zeroshot_vitb32.csv
   results/zeroshot_clip.csv
   results/zeroshot_dinov2.csv
   results/test_hashnet64.csv
@@ -38,14 +38,14 @@ DS_SHORT = {
 # Ordered method list: (display_name, group, csv_file, model_col_filter)
 METHODS = [
     # Group 1: Zero-shot
-    ("BiomedCLIP (zero-shot)", "Zero-shot", "zeroshot_biomedclip.csv", "biomedclip"),
-    ("CLIP (zero-shot)",       "Zero-shot", "zeroshot_clip.csv",       "clip"),
-    ("DINOv2 (zero-shot)",     "Zero-shot", "zeroshot_dinov2.csv",     "dinov2"),
+    ("CLIP ViT-B/32 (zero-shot)", "Zero-shot", "zeroshot_vitb32.csv", "vitb32"),
+    ("CLIP (zero-shot)",          "Zero-shot", "zeroshot_clip.csv",    "clip"),
+    ("DINOv2 (zero-shot)",        "Zero-shot", "zeroshot_dinov2.csv",  "dinov2"),
     # Group 2: Hash-based
-    ("HashNet-64",             "Hash",      "test_hashnet64.csv",       None),
+    ("HashNet-64",                "Hash",      "test_hashnet64.csv",    None),
     # Group 3: Ablation baselines
-    ("BiomedCLIP + Linear",   "Ablation",  "test_linear.csv",          None),
-    ("BiomedCLIP + MLP",      "Ablation",  "test_mlp.csv",             None),
+    ("CLIP ViT-B/32 + Linear",   "Ablation",  "test_linear.csv",       None),
+    ("CLIP ViT-B/32 + MLP",      "Ablation",  "test_mlp.csv",          None),
     # Group 4: Ours
     ("MoE-MedIR (ours)",      "Ours",      "test_moe.csv",             None),
 ]

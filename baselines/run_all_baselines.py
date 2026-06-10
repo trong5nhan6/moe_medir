@@ -3,14 +3,14 @@ Run ALL baseline comparisons and aggregate into one CSV table.
 
 Baselines implemented:
   Tier 1 (Zero-shot — no training):
-    - BiomedCLIP (zero-shot)
+    - CLIP ViT-B/32 (zero-shot)
     - CLIP (zero-shot)
     - DINOv2 (zero-shot)
   Tier 2 (Fine-tuned embedding models):
-    - BiomedCLIP + Linear (train.py --model linear)
-    - BiomedCLIP + MLP (train.py --model mlp)
+    - CLIP ViT-B/32 + Linear (train.py --model linear)
+    - CLIP ViT-B/32 + MLP (train.py --model mlp)
   Tier 3 (Our method):
-    - BiomedCLIP + MoE (train.py --model moe)
+    - CLIP ViT-B/32 + MoE (train.py --model moe)
 
 Hash-based methods (HashNet, CSQ, GreedyHash) require separate reimplementation.
 VTHSC-MIR is the closest prior work — implement in hashnet.py / csq.py separately.
@@ -31,19 +31,19 @@ def run(cmd, label):
 
 
 # ── Tier 1: Zero-shot ──────────────────────────────────────────────────────
-for model in ["biomedclip", "clip", "dinov2"]:
+for model in ["vitb32", "clip", "dinov2"]:
     run(["python", "baselines/zeroshot.py", "--model", model],
         f"Zero-shot {model}")
 
 # ── Tier 2: Fine-tuned heads ───────────────────────────────────────────────
 run(["python", "train.py", "--model", "linear", "--name", "linear"],
-    "BiomedCLIP + Linear")
+    "CLIP ViT-B/32 + Linear")
 run(["python", "train.py", "--model", "mlp", "--name", "mlp"],
-    "BiomedCLIP + MLP")
+    "CLIP ViT-B/32 + MLP")
 
 # ── Tier 3: Ours ──────────────────────────────────────────────────────────
 run(["python", "train.py", "--model", "moe", "--name", "moe"],
-    "BiomedCLIP + MoE (Ours)")
+    "CLIP ViT-B/32 + MoE (Ours)")
 
 # ── Aggregate Results ─────────────────────────────────────────────────────
 print("\n" + "="*60)
@@ -52,7 +52,7 @@ print("Aggregating results...")
 dfs = []
 
 # Zero-shot CSVs
-for model in ["biomedclip", "clip", "dinov2"]:
+for model in ["vitb32", "clip", "dinov2"]:
     path = os.path.join(CFG.results_dir, f"zeroshot_{model}.csv")
     if os.path.exists(path):
         df = pd.read_csv(path)
@@ -65,8 +65,8 @@ for name in ["linear", "mlp", "moe"]:
         hist = pd.read_csv(path)
         best = hist.loc[hist["avg_mAP@R"].idxmax()]
         # Extract per-dataset metrics from best epoch row
-        label = {"linear": "BiomedCLIP + Linear", "mlp": "BiomedCLIP + MLP",
-                 "moe": "BiomedCLIP + MoE (Ours)"}[name]
+        label = {"linear": "CLIP ViT-B/32 + Linear", "mlp": "CLIP ViT-B/32 + MLP",
+                 "moe": "CLIP ViT-B/32 + MoE (Ours)"}[name]
         for ds in CFG.datasets:
             row = {"dataset": ds, "model": label}
             for m in ["mAP@R", "R@1", "R@5", "R@10"]:

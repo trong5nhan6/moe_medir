@@ -1,20 +1,20 @@
 """
-Zero-shot baselines: BiomedCLIP, CLIP, DINOv2.
+Zero-shot baselines: CLIP ViT-B/32, CLIP (CLS-only), DINOv2.
 
 No training — uses raw L2-normalised features directly for retrieval.
 Evaluates same mAP@R + R@K protocol as the main model.
 
-BiomedCLIP  — uses full 1024-dim feature (CLS + PatchMean)
-CLIP        — uses only CLS 512-dim (first half of the 1024 vector)
-DINOv2      — uses only CLS 512-dim (same, since we used BiomedCLIP for extraction)
+vitb32  — uses full 1536-dim feature (CLS + PatchMean) from CLIP ViT-B/32
+clip    — uses only CLS 768-dim (first half of the 1536 vector)
+dinov2  — uses only CLS 768-dim (same, since we used CLIP ViT-B/32 for extraction)
 
-Note: CLIP and DINOv2 zero-shot here means "use BiomedCLIP-extracted features
+Note: clip and dinov2 zero-shot here means "use CLIP ViT-B/32-extracted features
 without any fine-tuning" rather than re-extracting with each backbone.
-For the paper, this is a fair lower bound showing BiomedCLIP features
-outperform generic features even before fine-tuning.
+For the paper, this is a fair lower bound showing CLIP ViT-B/32 features
+before any metric learning fine-tuning.
 
 Usage:
-  python baselines/zeroshot.py --model biomedclip
+  python baselines/zeroshot.py --model vitb32
   python baselines/zeroshot.py --model clip
   python baselines/zeroshot.py --model dinov2
 """
@@ -41,9 +41,9 @@ class ZeroShotModel(torch.nn.Module):
 
 
 CONFIGS = {
-    "biomedclip": 1024,   # full CLS + PatchMean
-    "clip":        512,   # CLS only (simulates CLIP ViT-B/16 output)
-    "dinov2":      512,   # CLS only (simulates DINOv2 ViT-B/14 output)
+    "vitb32": 1536,   # full CLS + PatchMean from CLIP ViT-B/32
+    "clip":    768,   # CLS only
+    "dinov2":  768,   # CLS only
 }
 
 
@@ -83,7 +83,7 @@ def run_zeroshot(model_name: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="biomedclip",
+    parser.add_argument("--model", default="vitb32",
                         choices=list(CONFIGS.keys()))
     args = parser.parse_args()
     run_zeroshot(args.model)

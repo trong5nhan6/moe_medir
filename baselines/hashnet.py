@@ -1,5 +1,5 @@
 """
-HashNet baseline on pre-extracted BiomedCLIP features.
+HashNet baseline on pre-extracted CLIP ViT-B/32 features.
 Reference: Cao et al., "HashNet: Deep Learning to Hash by Continuation" ICCV 2017.
 
 Adaptation:
@@ -146,23 +146,26 @@ def eval_hashnet(hash_bits: int = 64):
     model.eval()
     model.set_scale(20.0)     # use final scale for test
 
+    METRICS = ["mAP@R", "MRR", "R@1", "R@5", "R@10", "MPR@1", "MPR@5", "MPR@10"]
+
     test_loaders = get_loaders("test")
     rows, map_scores = [], []
 
     print(f"\nHashNet-{hash_bits} Test Results:")
-    print(f"{'Dataset':<15} {'mAP@R':>8} {'R@1':>8} {'R@5':>8} {'R@10':>8}")
-    print("-" * 52)
+    header = f"{'Dataset':<15}" + "".join(f"{m:>8}" for m in METRICS)
+    print(header)
+    print("-" * len(header))
     for ds_name, loader in test_loaders.items():
         r = evaluate_dataset(model, loader, device)
         rows.append({"Dataset": ds_name, "model": f"HashNet-{hash_bits}", **r})
         map_scores.append(r["mAP@R"])
-        print(f"{ds_name:<15} {r['mAP@R']:>8.2f} {r['R@1']:>8.2f} "
-              f"{r['R@5']:>8.2f} {r['R@10']:>8.2f}")
+        vals = "".join(f"{r.get(m, 0):>8.2f}" for m in METRICS)
+        print(f"{ds_name:<15}{vals}")
 
     avg = round(float(np.mean(map_scores)), 2)
     rows.append({"Dataset": "Average", "model": f"HashNet-{hash_bits}", "mAP@R": avg})
-    print("-" * 52)
-    print(f"{'Average':<15} {avg:>8.2f}")
+    print("-" * len(header))
+    print(f"{'Average':<15}{avg:>8.2f}")
 
     df = pd.DataFrame(rows)
     out = os.path.join(CFG.results_dir, f"test_hashnet{hash_bits}.csv")
