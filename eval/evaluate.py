@@ -1,4 +1,7 @@
-import argparse, os, torch, numpy as np, pandas as pd
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import argparse, torch, numpy as np, pandas as pd
 from config import CFG
 from data.dataset import get_loaders
 from models.full_model import MoEMedIR, LinearBaseline, MLPBaseline
