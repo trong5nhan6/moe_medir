@@ -1,10 +1,13 @@
-import os
+import os, platform
 import numpy as np
 import torch
 from torch.utils.data import (Dataset, DataLoader, ConcatDataset,
                                WeightedRandomSampler)
 from config import CFG
 from utils import get_sampler_generator
+
+# Windows does not support fork-based multiprocessing in DataLoader
+_NUM_WORKERS = 0 if platform.system() == "Windows" else 4
 
 
 class FeatureDataset(Dataset):
@@ -49,11 +52,11 @@ def get_loaders(split: str):
             generator=get_sampler_generator(CFG.seed),  # seeded!
         )
         return DataLoader(combined, batch_size=CFG.batch_size, sampler=sampler,
-                          num_workers=4, pin_memory=True, drop_last=True)
+                          num_workers=_NUM_WORKERS, pin_memory=True, drop_last=True)
     else:
         loaders = {}
         for ds_name in CFG.datasets:
             ds = FeatureDataset(ds_name, split, global_offset=0)
             loaders[ds_name] = DataLoader(ds, batch_size=256, shuffle=False,
-                                          num_workers=4, pin_memory=True)
+                                          num_workers=_NUM_WORKERS, pin_memory=True)
         return loaders
