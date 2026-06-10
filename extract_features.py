@@ -2,7 +2,7 @@
 Step 1 — Run ONCE before training.
 
 Loads CLIP ViT-B/32 (frozen, ~350MB), iterates over all 4 MedMNIST datasets × 3 splits,
-extracts 1024-dim features and saves them as .npy files.
+extracts 1536-dim features and saves them as .npy files.
 
 Feature = CLS token [768] concat mean(patch tokens) [768] = [1536]  (CLIP ViT-B/32)
   CLS captures global semantics
@@ -77,9 +77,9 @@ def extract_and_save(model, dataset_name: str, split: str, device):
         x     = vis.transformer(x)                               # [B, L+1, D]
         x     = vis.ln_post(x)
 
-        cls        = x[:, 0, :]                                  # [B, 512]
-        patch_mean = x[:, 1:, :].mean(dim=1)                    # [B, 512]
-        feat       = torch.cat([cls, patch_mean], dim=-1)        # [B, 1024]
+        cls        = x[:, 0, :]                                  # [B, 768]
+        patch_mean = x[:, 1:, :].mean(dim=1)                    # [B, 768]
+        feat       = torch.cat([cls, patch_mean], dim=-1)        # [B, 1536]
 
         all_feats.append(feat.cpu().numpy())
         all_labels.append(labels.squeeze(-1).numpy())   # medmnist returns [N,1]

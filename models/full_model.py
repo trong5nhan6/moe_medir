@@ -16,10 +16,16 @@ class MoEMedIR(nn.Module):
         # regardless of expert-choice coverage. Analogous to the "shared expert"
         # in DeepSeek-MoE — experts provide domain-specific delta on top of this.
         self.skip_proj = nn.Linear(CFG.feature_dim, 256, bias=False)
+        # 2-layer projection head with non-linearity (matches MLP baseline capacity)
         self.proj = nn.Sequential(
+            nn.Linear(256, 256),
+            nn.GELU(),
             nn.Linear(256, CFG.embed_dim),
             nn.LayerNorm(CFG.embed_dim),
         )
+        # Modality classification head: predicts which dataset a sample comes from
+        # based solely on routing distribution — trains router to be modality-discriminative
+        self.spec_head = nn.Linear(CFG.num_experts, len(CFG.datasets))
 
     def forward(self, x):
         x        = self.input_drop(x)

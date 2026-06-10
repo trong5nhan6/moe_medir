@@ -29,8 +29,11 @@ class Config:
 
     # ── Feature extraction ────────────────────────────────────────────────
     feature_dir:  str = "data/features"
-    feature_dim:  int = 1536        # CLS[768] + PatchMean[768]  (CLIP ViT-B/32)
-    backbone_dim: int = 768         # CLIP ViT-B/32 hidden dim
+    # "cls"    → only CLS token          → feature_dim = 768
+    # "concat" → CLS + PatchMean concat  → feature_dim = 1536
+    feature_mode: str = "concat"
+    feature_dim:  int = 1536        # auto-set by __post_init__ based on feature_mode
+    backbone_dim: int = 768         # CLIP ViT-B/32 hidden dim per token
 
     # ── Backbone ──────────────────────────────────────────────────────────
     backbone:            str = "ViT-B-32"   # open_clip model name (~350MB)
@@ -38,9 +41,9 @@ class Config:
 
     # ── MoE head ──────────────────────────────────────────────────────────
     num_experts:   int   = 8
-    top_k:         int   = 2
+    top_k:         int   = 4
     expert_hidden: int   = 512
-    embed_dim:     int   = 128      # final L2-normalised retrieval embedding
+    embed_dim:     int   = 256      # final L2-normalised retrieval embedding
 
     # ── Training ──────────────────────────────────────────────────────────
     batch_size:    int   = 256
@@ -48,9 +51,10 @@ class Config:
     lr:            float = 1e-4
     weight_decay:  float = 1e-4
     temperature:   float = 0.07     # SupCon temperature τ
-    lambda_lb:     float = 0.01     # load-balance loss weight (token_choice only)
-    lambda_orth:   float = 0.01     # expert weight orthogonality loss weight
-    lambda_affinity: float = 0.1    # modality routing diversity loss weight
+    lambda_lb:      float = 0.01    # load-balance loss weight (token_choice only)
+    lambda_orth:    float = 0.01    # expert weight orthogonality loss weight
+    lambda_affinity: float = 0.1   # Fisher routing diversity loss weight
+    lambda_spec:    float = 0.1    # modality routing classification loss weight
     warmup_epochs: int   = 5        # linear LR warmup before cosine decay
     feat_noise:    float = 0.01     # Gaussian noise std on input features
 
@@ -70,6 +74,13 @@ class Config:
     # ── Paths ─────────────────────────────────────────────────────────────
     checkpoint_dir: str = "results/checkpoints"
     results_dir:    str = "results"
+
+
+    def __post_init__(self):
+        if self.feature_mode == "cls":
+            self.feature_dim = self.backbone_dim           # 768
+        else:
+            self.feature_dim = self.backbone_dim * 2      # 1536
 
 
 CFG = Config()

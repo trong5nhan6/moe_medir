@@ -23,7 +23,10 @@ class FeatureDataset(Dataset):
         return len(self.feats)
 
     def __getitem__(self, idx):
-        feat  = torch.from_numpy(self.feats[idx])
+        feat = torch.from_numpy(self.feats[idx])           # [1536] always on disk
+        if CFG.feature_mode == "cls":
+            feat = feat[:CFG.backbone_dim]                 # [768]  CLS only
+        # "concat": use full [1536] as-is
         label = int(self.labels[idx]) + self.offset
         return feat, label, self.ds_id
 
