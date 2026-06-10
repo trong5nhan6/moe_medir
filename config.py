@@ -58,7 +58,7 @@ class Config:
     # "token_choice"  : each token selects top-k experts (Switch Transformer)
     # "expert_choice" : each expert selects top-c tokens (NeurIPS 2022)
     #                   → perfect load balance by construction, no lb_loss needed
-    routing_mode:    str   = "expert_choice"
+    routing_mode:    str   = "token_choice"
     capacity_factor: float = 2.0   # expert_choice: slots/expert = capacity_factor*B/K
 
     # ── Evaluation ────────────────────────────────────────────────────────

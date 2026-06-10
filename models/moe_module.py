@@ -11,8 +11,9 @@ Supports two routing modes (controlled by CFG.routing_mode):
     Each expert selects its top-c tokens.
     c = capacity_factor * B / num_experts  (default capacity_factor=2.0)
     → Perfect load balance BY CONSTRUCTION — no auxiliary loss needed.
-    → Variable per-token coverage (some tokens may be picked by 0 or many experts).
-    → A shared residual projection (skip_proj in MoEMedIR) handles zero-coverage tokens.
+    → Gate weights are per-TOKEN softmax (normalize over selected experts per token),
+      ensuring each token's total weight sums to 1 — scale-consistent with token_choice.
+    → ~10% zero-coverage tokens (with capacity_factor=2.0) are handled by skip_proj.
 
 Router: 2-layer MLP with noisy logits during training (Noisy Top-K, GShard 2020).
   During training: logits += Normal(0, softplus(W_noise * x))
@@ -125,27 +126,40 @@ class MoESpecializationModule(nn.Module):
         Each expert selects its top-c tokens.
         c = max(1, int(capacity_factor * B / K))
 
-        Gate weights are per-expert softmax (sum-to-1 per expert, not per token).
-        Tokens selected by multiple experts accumulate contributions.
-        Tokens selected by 0 experts contribute 0 (handled by skip_proj in MoEMedIR).
+        Gate normalization: per-TOKEN softmax over selected experts.
+          gate[i, k] = softmax(router_logits[i, selected_experts_of_i])[k]
+        → Each token's weights sum to 1, scale-consistent with token_choice.
+        → Tokens with zero coverage get output=0 (skip_proj in MoEMedIR handles them).
         """
         B        = x.size(0)
         capacity = max(1, int(self.capacity_factor * B / self.num_experts))
 
-        # router_logits: [B, K] → transpose to [K, B] for per-expert view
-        expert_scores = router_logits.T                          # [K, B]
-
-        output = torch.zeros(B, self.output_dim, device=x.device, dtype=x.dtype)
-
+        # Step 1: Each expert selects its top-c tokens → dispatch mask [B, K]
+        dispatch = torch.zeros(B, self.num_experts,
+                               dtype=torch.bool, device=x.device)
         for e_idx in range(self.num_experts):
-            scores = expert_scores[e_idx]                        # [B]
-            c      = min(capacity, B)
-            top_scores, top_indices = scores.topk(c, dim=0)     # [c]
-            gate   = F.softmax(top_scores, dim=0)               # [c] sum-to-1
+            c = min(capacity, B)
+            _, top_idx = router_logits[:, e_idx].topk(c, dim=0)  # [c]
+            dispatch[top_idx, e_idx] = True
 
-            e_out  = self.experts[e_idx](x[top_indices])        # [c, D]
-            output.index_add_(0, top_indices,
-                              gate.unsqueeze(-1) * e_out)
+        # Step 2: Per-token gate weights
+        # Mask out experts that did NOT select each token → softmax over selected only
+        masked = router_logits.clone()                    # [B, K]
+        masked[~dispatch] = float('-inf')
+        gate = F.softmax(masked, dim=-1)                  # [B, K] per-token normalized
+
+        # Zero out rows with no coverage (avoid nan from all-inf softmax)
+        zero_coverage = ~dispatch.any(dim=1)              # [B]
+        gate[zero_coverage] = 0.0
+
+        # Step 3: Accumulate weighted expert outputs
+        output = torch.zeros(B, self.output_dim, device=x.device, dtype=x.dtype)
+        for e_idx in range(self.num_experts):
+            mask = dispatch[:, e_idx]                     # [B] bool
+            if not mask.any():
+                continue
+            e_out = self.experts[e_idx](x[mask])          # [n, D]
+            output[mask] += gate[mask, e_idx].unsqueeze(-1) * e_out
 
         return output
 
