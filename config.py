@@ -74,7 +74,7 @@ class Config:
     # Auto-set by __post_init__ — do NOT edit manually:
     backbone_dim: int = 768
     feature_dim:  int = 1536
-    feature_dir:  str = "data/features/clip_vitb32"
+    feature_dir:  str = "data/features"
 
     # ── MoE head ──────────────────────────────────────────────────────────
     num_experts:   int   = 8
