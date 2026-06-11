@@ -86,18 +86,27 @@ def extract_batch(model, imgs: torch.Tensor, loader_type: str) -> torch.Tensor:
     """
     if loader_type == "open_clip":
         vis = model.visual
-        # Patch embedding
-        x = vis.conv1(imgs)                                          # [B, D, H, W]
-        x = x.reshape(x.shape[0], x.shape[1], -1).permute(0, 2, 1) # [B, L, D]
-        # Prepend CLS token
-        cls_tok = vis.class_embedding.unsqueeze(0).unsqueeze(0).expand(x.shape[0], -1, -1)
-        x = torch.cat([cls_tok, x], dim=1)                          # [B, L+1, D]
-        x = x + vis.positional_embedding
-        x = vis.ln_pre(x)
-        x = vis.transformer(x)
-        x = vis.ln_post(x)
-        cls        = x[:, 0, :]                                      # [B, 768]
-        patch_mean = x[:, 1:, :].mean(dim=1)                        # [B, 768]
+        if hasattr(vis, 'trunk'):
+            # TimmModel (BiomedCLIP): timm ViT — không có conv1
+            trunk = vis.trunk
+            x = trunk.patch_embed(imgs)           # [B, L, D]
+            x = trunk._pos_embed(x)               # prepend CLS + pos_embed → [B, L+1, D]
+            if hasattr(trunk, 'norm_pre'):
+                x = trunk.norm_pre(x)
+            x = trunk.blocks(x)                   # [B, L+1, D]
+            x = trunk.norm(x)
+        else:
+            # Standard CLIP ViT (clip_vitb32): dùng conv1 patch embedding
+            x = vis.conv1(imgs)                                          # [B, D, H, W]
+            x = x.reshape(x.shape[0], x.shape[1], -1).permute(0, 2, 1) # [B, L, D]
+            cls_tok = vis.class_embedding.unsqueeze(0).unsqueeze(0).expand(x.shape[0], -1, -1)
+            x = torch.cat([cls_tok, x], dim=1)                          # [B, L+1, D]
+            x = x + vis.positional_embedding
+            x = vis.ln_pre(x)
+            x = vis.transformer(x)
+            x = vis.ln_post(x)
+        cls        = x[:, 0, :]                                          # [B, 768]
+        patch_mean = x[:, 1:, :].mean(dim=1)                            # [B, 768]
 
     elif loader_type == "hf_dinov2":
         outputs    = model(pixel_values=imgs)
