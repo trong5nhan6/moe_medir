@@ -11,7 +11,10 @@ class MoEMedIR(nn.Module):
         self.input_drop = nn.Dropout(0.1)
         self.moe = MoESpecializationModule(
             input_dim=CFG.feature_dim, num_experts=CFG.num_experts,
-            top_k=CFG.top_k, hidden_dim=CFG.expert_hidden, output_dim=256)
+            top_k=CFG.top_k, hidden_dim=CFG.expert_hidden, output_dim=256,
+            use_sharemoe=CFG.use_sharemoe,
+            num_shared_experts=CFG.num_shared_experts,
+        )
         # Shared residual: ensures every token has a base representation
         # regardless of expert-choice coverage. Analogous to the "shared expert"
         # in DeepSeek-MoE — experts provide domain-specific delta on top of this.

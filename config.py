@@ -109,6 +109,12 @@ class Config:
     routing_mode:    str   = "token_choice"
     capacity_factor: float = 2.0   # expert_choice: slots/expert = capacity_factor*B/K
 
+    # ── ShareMoE (DeepSeek-MoE style) ────────────────────────────────────
+    # use_sharemoe=True : num_shared_experts always active + remaining routed
+    # e.g. num_experts=8, num_shared_experts=1 → 1 shared + 7 routed
+    use_sharemoe:       bool = False
+    num_shared_experts: int  = 1
+
     # ── Evaluation ────────────────────────────────────────────────────────
     recall_k: List[int] = field(default_factory=lambda: [1, 5, 10])
 
