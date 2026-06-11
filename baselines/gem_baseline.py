@@ -33,11 +33,13 @@ from data.image_dataset import get_image_loaders
 from eval.metrics import evaluate_all
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--epochs",        type=int,   default=CFG.epochs)
-parser.add_argument("--frozen_epochs", type=int,   default=5,
+parser.add_argument("--epochs",          type=int,   default=CFG.epochs)
+parser.add_argument("--frozen_epochs",   type=int,   default=5,
                     help="Epochs with backbone frozen (warm-up)")
-parser.add_argument("--backbone_lr",   type=float, default=1e-5)
-parser.add_argument("--head_lr",       type=float, default=CFG.lr)
+parser.add_argument("--backbone_lr",     type=float, default=1e-5)
+parser.add_argument("--head_lr",         type=float, default=CFG.lr)
+parser.add_argument("--finetune_blocks", type=int,   default=2,
+                    help="Number of ConvNeXt tail stages to unfreeze in stage 2 (0=all)")
 args, _ = parser.parse_known_args()
 
 set_seed(CFG.seed)
@@ -69,8 +71,11 @@ class GeMModel(nn.Module):
                           .mean(dim=[-2, -1]).pow(1.0 / p)     # [B, 1024]
         return F.normalize(self.proj(gem), dim=-1), None
 
-    def backbone_parameters(self):
-        return list(self.features.parameters())
+    def backbone_parameters(self, finetune_blocks: int = 0):
+        if finetune_blocks == 0:
+            return list(self.features.parameters())
+        tail = list(self.features.children())[-finetune_blocks:]
+        return [p for b in tail for p in b.parameters()]
 
     def head_parameters(self):
         return [self.gem_p] + list(self.proj.parameters())
@@ -81,8 +86,10 @@ def make_optimizer(model, stage: int):
         return torch.optim.AdamW(model.head_parameters(),
                                  lr=args.head_lr, weight_decay=CFG.weight_decay)
     return torch.optim.AdamW([
-        {"params": model.head_parameters(),      "lr": args.head_lr},
-        {"params": model.backbone_parameters(),  "lr": args.backbone_lr},
+        {"params": model.head_parameters(),
+         "lr": args.head_lr},
+        {"params": model.backbone_parameters(args.finetune_blocks),
+         "lr": args.backbone_lr},
     ], weight_decay=CFG.weight_decay)
 
 
@@ -112,11 +119,17 @@ def main():
         # Stage transition
         if stage == 1 and epoch > args.frozen_epochs:
             stage = 2
-            for p in model.features.parameters():
-                p.requires_grad_(True)
+            if args.finetune_blocks == 0:
+                for p in model.features.parameters():
+                    p.requires_grad_(True)
+            else:
+                for block in list(model.features.children())[-args.finetune_blocks:]:
+                    for p in block.parameters():
+                        p.requires_grad_(True)
             optim = make_optimizer(model, 2)
-            n_unf = sum(p.numel() for p in model.features.parameters())
-            print(f"\n--- Stage 2 (epoch {epoch}): unfroze {n_unf:,} backbone params ---\n")
+            n_unf = sum(p.numel() for p in model.backbone_parameters(args.finetune_blocks))
+            print(f"\n--- Stage 2 (epoch {epoch}): unfroze {n_unf:,} backbone params "
+                  f"(last {args.finetune_blocks} blocks) ---\n")
 
         model.features.eval() if stage == 1 else model.features.train()
         model.proj.train()

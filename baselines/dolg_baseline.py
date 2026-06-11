@@ -35,10 +35,12 @@ from data.image_dataset import get_image_loaders
 from eval.metrics import evaluate_all
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--epochs",        type=int,   default=CFG.epochs)
-parser.add_argument("--frozen_epochs", type=int,   default=5)
-parser.add_argument("--backbone_lr",   type=float, default=1e-5)
-parser.add_argument("--head_lr",       type=float, default=CFG.lr)
+parser.add_argument("--epochs",          type=int,   default=CFG.epochs)
+parser.add_argument("--frozen_epochs",   type=int,   default=5)
+parser.add_argument("--backbone_lr",     type=float, default=1e-5)
+parser.add_argument("--head_lr",         type=float, default=CFG.lr)
+parser.add_argument("--finetune_blocks", type=int,   default=2,
+                    help="Number of ConvNeXt tail stages to unfreeze in stage 2 (0=all)")
 args, _ = parser.parse_known_args()
 
 set_seed(CFG.seed)
@@ -101,8 +103,11 @@ class DOLGModel(nn.Module):
 
         return F.normalize(self.proj(fused), dim=-1), None
 
-    def backbone_parameters(self):
-        return list(self.features.parameters())
+    def backbone_parameters(self, finetune_blocks: int = 0):
+        if finetune_blocks == 0:
+            return list(self.features.parameters())
+        tail = list(self.features.children())[-finetune_blocks:]
+        return [p for b in tail for p in b.parameters()]
 
     def head_parameters(self):
         return (list(self.local_conv.parameters()) +
@@ -112,17 +117,16 @@ class DOLGModel(nn.Module):
 
 
 def make_optimizer(model, stage: int):
+    bb_params = set(id(p) for p in model.backbone_parameters(args.finetune_blocks))
+    head_params = [p for p in model.parameters()
+                   if p.requires_grad and id(p) not in bb_params]
     if stage == 1:
-        return torch.optim.AdamW(
-            [p for p in model.parameters() if p.requires_grad and
-             not any(p is bp for bp in model.backbone_parameters())],
-            lr=args.head_lr, weight_decay=CFG.weight_decay)
+        return torch.optim.AdamW(head_params,
+                                 lr=args.head_lr, weight_decay=CFG.weight_decay)
     return torch.optim.AdamW([
-        {"params": [p for p in model.parameters()
-                    if p.requires_grad and
-                    not any(p is bp for bp in model.backbone_parameters())],
-         "lr": args.head_lr},
-        {"params": model.backbone_parameters(), "lr": args.backbone_lr},
+        {"params": head_params, "lr": args.head_lr},
+        {"params": model.backbone_parameters(args.finetune_blocks),
+         "lr": args.backbone_lr},
     ], weight_decay=CFG.weight_decay)
 
 
@@ -153,11 +157,17 @@ def main():
         # Stage transition
         if stage == 1 and epoch > args.frozen_epochs:
             stage = 2
-            for p in model.features.parameters():
-                p.requires_grad_(True)
+            if args.finetune_blocks == 0:
+                for p in model.features.parameters():
+                    p.requires_grad_(True)
+            else:
+                for block in list(model.features.children())[-args.finetune_blocks:]:
+                    for p in block.parameters():
+                        p.requires_grad_(True)
             optim = make_optimizer(model, 2)
-            n_unf = sum(p.numel() for p in model.features.parameters())
-            print(f"\n--- Stage 2 (epoch {epoch}): unfroze {n_unf:,} backbone params ---\n")
+            n_unf = sum(p.numel() for p in model.backbone_parameters(args.finetune_blocks))
+            print(f"\n--- Stage 2 (epoch {epoch}): unfroze {n_unf:,} backbone params "
+                  f"(last {args.finetune_blocks} blocks) ---\n")
 
         model.features.eval() if stage == 1 else model.features.train()
         model.local_conv.train()
