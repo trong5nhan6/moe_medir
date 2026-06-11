@@ -55,13 +55,18 @@ class BackboneWrapper(nn.Module):
 
     def unfreeze_partial(self, n_blocks: int = 2):
         """
-        Unfreeze last n_blocks transformer blocks (ViT) or full model (CNN).
-        CNN: fine-tune entire model. ViT: last n_blocks + final norm only.
+        Unfreeze last n_blocks transformer blocks (ViT) or CNN stages.
+        CNN: n_blocks=0 unfreezes all; otherwise last n_blocks stages of features.
+        ViT: last n_blocks + final norm only.
         """
         loader = self.loader_type
 
         if loader == "torchvision_cnn":
-            _set_requires_grad(self.model, True)
+            if n_blocks == 0:
+                _set_requires_grad(self.model, True)
+            else:
+                for stage in list(self.model.features.children())[-n_blocks:]:
+                    _set_requires_grad(stage, True)
 
         elif loader in ("open_clip", "open_clip_hub"):
             vis = self.model.visual
