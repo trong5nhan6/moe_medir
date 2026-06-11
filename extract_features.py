@@ -43,6 +43,8 @@ NORM_STATS = {
                        (0.26862954, 0.26130258, 0.27577711)),
     "dinov2_vitb14":  ((0.485, 0.456, 0.406),
                        (0.229, 0.224, 0.225)),
+    "convnext_base":  ((0.485, 0.456, 0.406),
+                       (0.229, 0.224, 0.225)),
 }
 
 
@@ -71,6 +73,13 @@ def load_backbone(backbone: str, device):
         print(f"  Loading {info['model_name']} via HuggingFace transformers...")
         model = AutoModel.from_pretrained(info["model_name"])
         return model.to(device).eval(), "hf_dinov2"
+
+    elif info["loader"] == "torchvision_cnn":
+        import torchvision.models as tvm
+        print(f"  Loading {info['model_name']} (weights={info['pretrained']}) via torchvision...")
+        model_fn = getattr(tvm, info["model_name"])
+        model = model_fn(weights=info["pretrained"])
+        return model.to(device).eval(), "torchvision_cnn"
 
     else:
         raise ValueError(f"Unknown loader type: {info['loader']}")
@@ -113,6 +122,12 @@ def extract_batch(model, imgs: torch.Tensor, loader_type: str) -> torch.Tensor:
         hidden     = outputs.last_hidden_state                       # [B, L+1, 768]
         cls        = hidden[:, 0, :]                                 # [B, 768]
         patch_mean = hidden[:, 1:, :].mean(dim=1)                   # [B, 768]
+
+    elif loader_type == "torchvision_cnn":
+        import torch.nn.functional as F
+        feat_map   = model.features(imgs)                            # [B, 1024, H, W]
+        cls        = F.adaptive_avg_pool2d(feat_map, 1).flatten(1)  # [B, 1024]  GAP
+        patch_mean = F.adaptive_max_pool2d(feat_map, 1).flatten(1)  # [B, 1024]  GMP
 
     else:
         raise ValueError(f"Unknown loader_type: {loader_type}")

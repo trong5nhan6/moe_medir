@@ -9,6 +9,7 @@ from typing import List, Dict
 #   "open_clip"      open_clip.create_model_and_transforms(model_name, pretrained=pretrained)
 #   "open_clip_hub"  open_clip.create_model_and_transforms(model_name)  (no pretrained arg)
 #   "hf_dinov2"      transformers.AutoModel.from_pretrained(model_name)
+#   "torchvision_cnn" torchvision.models.<model_name>(weights="DEFAULT") — CNN, GAP+GMP concat
 #
 BACKBONE_REGISTRY: Dict[str, dict] = {
     "clip_vitb32": {
@@ -31,6 +32,13 @@ BACKBONE_REGISTRY: Dict[str, dict] = {
         "model_name": "facebook/dinov2-base",
         "pretrained": None,
         "note":       "DINOv2 ViT-B/14 — self-supervised, strong visual features (Meta)",
+    },
+    "convnext_base": {
+        "dim":        1024,
+        "loader":     "torchvision_cnn",
+        "model_name": "convnext_base",
+        "pretrained": "DEFAULT",
+        "note":       "ConvNeXt-Base — modern CNN competitive with ViT-B (Meta, 2022, ~89M params)",
     },
 }
 
