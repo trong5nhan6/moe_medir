@@ -146,7 +146,7 @@ def extract_and_save(model, loader_type: str, dataset_name: str,
     feats  = np.concatenate(all_feats).astype(np.float32)
     labels = np.concatenate(all_labels).astype(np.int64)
 
-    out_dir = CFG.feature_dir
+    out_dir = os.path.join("data", "features", backbone)
     os.makedirs(out_dir, exist_ok=True)
     np.save(os.path.join(out_dir, f"{dataset_name}_{split}_feat.npy"),  feats)
     np.save(os.path.join(out_dir, f"{dataset_name}_{split}_label.npy"), labels)
