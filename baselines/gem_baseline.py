@@ -38,7 +38,7 @@ parser.add_argument("--frozen_epochs",   type=int,   default=5,
                     help="Epochs with backbone frozen (warm-up)")
 parser.add_argument("--backbone_lr",     type=float, default=1e-5)
 parser.add_argument("--head_lr",         type=float, default=CFG.lr)
-parser.add_argument("--finetune_blocks", type=int,   default=0,
+parser.add_argument("--finetune_blocks", type=int,   default=2,
                     help="Number of ConvNeXt tail stages to unfreeze in stage 2 (0=all)")
 args, _ = parser.parse_known_args()
 
