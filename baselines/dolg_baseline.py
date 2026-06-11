@@ -221,6 +221,23 @@ def main():
         os.path.join(CFG.results_dir, "history_dolg.csv"), index=False)
     print(f"\nDOLG done. Best val mAP@R: {best_map:.2f}")
 
+    # ── Final test evaluation ─────────────────────────────────────────────
+    print("\n--- Test set evaluation (best checkpoint) ---")
+    model.load_state_dict(torch.load(
+        os.path.join(CFG.checkpoint_dir, "best_dolg.pt"), map_location=device))
+    model.eval()
+    test_loaders  = get_image_loaders("test")
+    test_results  = evaluate_all(model, test_loaders, device)
+    avg_test      = test_results["avg_mAP@R"]
+    per_ds        = "  ".join(
+        f"{ds[:4]}={test_results[ds]['mAP@R']:.1f}" for ds in CFG.datasets)
+    print(f"DOLG  TEST  avg mAP@R={avg_test:.2f}  |  {per_ds}")
+    rows_test = [{"Dataset": ds, **test_results[ds]} for ds in CFG.datasets]
+    rows_test.append({"Dataset": "Average", "mAP@R": avg_test})
+    pd.DataFrame(rows_test).to_csv(
+        os.path.join(CFG.results_dir, "test_dolg.csv"), index=False)
+    print(f"Saved: {CFG.results_dir}/test_dolg.csv")
+
 
 if __name__ == "__main__":
     main()

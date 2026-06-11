@@ -37,8 +37,10 @@ parser.add_argument("--alpha",  type=float, default=3.0,
                     help="QE weight exponent: higher → more selective top-K")
 parser.add_argument("--top_k",  type=int,   default=10,
                     help="Number of neighbors to aggregate")
-parser.add_argument("--split",  default="val", choices=["val", "test"])
+parser.add_argument("--split",  default="test", choices=["val", "test"])
 args = parser.parse_args()
+
+IMAGE_BASED_MODELS = {"gem", "dolg"}
 
 set_seed(CFG.seed)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -61,11 +63,11 @@ def load_model(name: str):
         from models.full_model import MLPBaseline
         m = MLPBaseline()
     elif name == "gem":
-        from baselines.gem_baseline import GeMHead
-        m = GeMHead()
+        from baselines.gem_baseline import GeMModel
+        m = GeMModel()
     elif name == "dolg":
-        from baselines.dolg_baseline import DOLGHead
-        m = DOLGHead()
+        from baselines.dolg_baseline import DOLGModel
+        m = DOLGModel()
     elif name == "csq":
         from baselines.csq_baseline import CSQHead, N_BITS
         m = CSQHead(N_BITS)
@@ -131,8 +133,12 @@ def compute_recall(embs: torch.Tensor, labels: torch.Tensor, k: int) -> float:
 # ── Main ──────────────────────────────────────────────────────────────────
 
 def main():
-    model   = load_model(args.model)
-    loaders = get_loaders(args.split)
+    model = load_model(args.model)
+    if args.model in IMAGE_BASED_MODELS:
+        from data.image_dataset import get_image_loaders
+        loaders = get_image_loaders(args.split)
+    else:
+        loaders = get_loaders(args.split)
 
     print(f"\nSuperGlobal (α-QE) re-ranking")
     print(f"  model={args.model}  alpha={args.alpha}  top_k={args.top_k}  split={args.split}")
