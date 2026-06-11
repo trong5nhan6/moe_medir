@@ -77,7 +77,7 @@ def csq_loss(logits: torch.Tensor, labels: torch.Tensor,
     labels:       [B]          global class IDs 0..total_classes-1
     hash_centers: [C, n_bits]  {-1,+1} target codes per class
     """
-    targets = hash_centers[labels].to(logits.device)     # [B, n_bits]
+    targets = hash_centers[labels.cpu()].to(logits.device)     # [B, n_bits]
     # BCE loss: pull logits toward class hash center
     t_binary = (targets + 1) / 2                         # {-1,+1} → {0,1}
     l_bce    = F.binary_cross_entropy_with_logits(logits, t_binary)
