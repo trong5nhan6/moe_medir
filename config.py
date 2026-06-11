@@ -113,7 +113,7 @@ class Config:
     # use_sharemoe=True : num_shared_experts always active + remaining routed
     # e.g. num_experts=8, num_shared_experts=1 → 1 shared + 7 routed
     use_sharemoe:       bool = False
-    num_shared_experts: int  = 1
+    num_shared_experts: int  = 2
 
     # ── Evaluation ────────────────────────────────────────────────────────
     recall_k: List[int] = field(default_factory=lambda: [1, 5, 10])
