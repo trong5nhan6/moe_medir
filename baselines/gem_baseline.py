@@ -73,7 +73,7 @@ class GeMModel(nn.Module):
         return list(self.features.parameters())
 
     def head_parameters(self):
-        return list(self.gem_p.parameters()) + list(self.proj.parameters())
+        return [self.gem_p] + list(self.proj.parameters())
 
 
 def make_optimizer(model, stage: int):
