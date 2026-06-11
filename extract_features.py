@@ -185,8 +185,8 @@ def main():
     print(f"Done. Features saved to: data/features/{backbone}/")
 
     # Auto-zip for easy upload to Kaggle / Drive
-    zip_path = f"data/features_{backbone}.zip"
     feat_dir = f"data/features/{backbone}"
+    zip_path = f"data/features/{backbone}.zip"   # cùng thư mục với feat_dir
     print(f"\nZipping features → {zip_path} ...")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for fname in sorted(os.listdir(feat_dir)):
