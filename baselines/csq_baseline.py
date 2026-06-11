@@ -31,7 +31,7 @@ from eval.metrics import evaluate_all
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_bits", type=int, default=64, help="Hash code length")
-args = parser.parse_args()
+args, _ = parser.parse_known_args()
 
 N_BITS = args.n_bits
 

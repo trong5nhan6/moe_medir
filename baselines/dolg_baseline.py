@@ -39,7 +39,7 @@ parser.add_argument("--epochs",        type=int,   default=CFG.epochs)
 parser.add_argument("--frozen_epochs", type=int,   default=5)
 parser.add_argument("--backbone_lr",   type=float, default=1e-5)
 parser.add_argument("--head_lr",       type=float, default=CFG.lr)
-args = parser.parse_args()
+args, _ = parser.parse_known_args()
 
 set_seed(CFG.seed)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
