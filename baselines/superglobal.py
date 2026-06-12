@@ -19,10 +19,11 @@ Usage:
   python baselines/superglobal.py --model gem
   python baselines/superglobal.py --model dolg --alpha 3.0 --top_k 10
   python baselines/superglobal.py --model csq  --alpha 2.0 --top_k 5
+  python baselines/superglobal.py --model moe --ckpt results/checkpoints/best_finetune_dinov2_vitb14_moe.pt
 """
 import os, sys, argparse
 import numpy as np
-import torch, torch.nn.functional as F
+import torch, torch.nn as nn, torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import CFG
@@ -33,6 +34,8 @@ from eval.metrics import _map_at_r
 parser = argparse.ArgumentParser()
 parser.add_argument("--model",  default="moe",
                     choices=["moe", "gem", "dolg", "csq", "linear", "mlp"])
+parser.add_argument("--ckpt",   default=None,
+                    help="Custom checkpoint path (optional). Auto-detects finetune format.")
 parser.add_argument("--alpha",  type=float, default=3.0,
                     help="QE weight exponent: higher → more selective top-K")
 parser.add_argument("--top_k",  type=int,   default=10,
@@ -47,12 +50,37 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ── Model loader ──────────────────────────────────────────────────────────
 
-def load_model(name: str):
-    ckpt = os.path.join(CFG.checkpoint_dir, f"best_{name}.pt")
-    if not os.path.exists(ckpt):
-        raise FileNotFoundError(
-            f"Checkpoint not found: {ckpt}\nRun the corresponding training script first.")
+class _FinetuneModel(nn.Module):
+    """Wraps backbone + head loaded from a finetune checkpoint."""
+    def __init__(self, backbone, head):
+        super().__init__()
+        self.backbone = backbone
+        self.head     = head
+    def forward(self, imgs):
+        return self.head(self.backbone(imgs))
 
+
+def load_model(name: str, ckpt_path: str = None):
+    ckpt_path = ckpt_path or os.path.join(CFG.checkpoint_dir, f"best_{name}.pt")
+    if not os.path.exists(ckpt_path):
+        raise FileNotFoundError(
+            f"Checkpoint not found: {ckpt_path}\nRun the corresponding training script first.")
+
+    raw = torch.load(ckpt_path, map_location=device)
+
+    # Finetune checkpoint: saved as {'backbone': ..., 'head': ...}
+    if isinstance(raw, dict) and "backbone" in raw and "head" in raw:
+        from models.full_model import MoEMedIR
+        from models.backbone_wrapper import BackboneWrapper
+        backbone = BackboneWrapper(CFG.backbone, device)
+        backbone.load_state_dict(raw["backbone"])
+        backbone.eval()
+        head = MoEMedIR().to(device)
+        head.load_state_dict(raw["head"])
+        head.eval()
+        return _FinetuneModel(backbone, head), True  # (model, is_image_based)
+
+    # Standard flat state dict
     if name == "moe":
         from models.full_model import MoEMedIR
         m = MoEMedIR()
@@ -74,8 +102,8 @@ def load_model(name: str):
     else:
         raise ValueError(f"Unknown model: {name}")
 
-    m.load_state_dict(torch.load(ckpt, map_location=device))
-    return m.to(device).eval()
+    m.load_state_dict(raw)
+    return m.to(device).eval(), name in IMAGE_BASED_MODELS
 
 
 # ── Re-ranking functions ──────────────────────────────────────────────────
@@ -83,8 +111,8 @@ def load_model(name: str):
 @torch.no_grad()
 def extract_embeddings(model, loader):
     all_embs, all_labels = [], []
-    for feats, labels, _ in loader:
-        embs, _ = model(feats.to(device))
+    for batch_input, labels, _ in loader:
+        embs, _ = model(batch_input.to(device))
         all_embs.append(embs.cpu())
         all_labels.append(labels if isinstance(labels, torch.Tensor)
                           else torch.tensor(labels))
@@ -133,15 +161,16 @@ def compute_recall(embs: torch.Tensor, labels: torch.Tensor, k: int) -> float:
 # ── Main ──────────────────────────────────────────────────────────────────
 
 def main():
-    model = load_model(args.model)
-    if args.model in IMAGE_BASED_MODELS:
+    model, is_image_based = load_model(args.model, args.ckpt)
+    if is_image_based:
         from data.image_dataset import get_image_loaders
         loaders = get_image_loaders(args.split)
     else:
         loaders = get_loaders(args.split)
 
+    ckpt_label = os.path.basename(args.ckpt) if args.ckpt else f"best_{args.model}.pt"
     print(f"\nSuperGlobal (α-QE) re-ranking")
-    print(f"  model={args.model}  alpha={args.alpha}  top_k={args.top_k}  split={args.split}")
+    print(f"  model={args.model}  ckpt={ckpt_label}  alpha={args.alpha}  top_k={args.top_k}  split={args.split}")
     print("=" * 70)
 
     all_before, all_after = [], []
