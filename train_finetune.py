@@ -35,6 +35,7 @@ from losses.load_balance import load_balance_loss
 from losses.orthogonality import expert_orthogonality_loss
 from losses.modality_affinity import modality_affinity_loss
 from eval.metrics import evaluate_all
+from analysis.routing_analysis import run_routing_analysis
 
 os.makedirs(CFG.checkpoint_dir, exist_ok=True)
 os.makedirs(CFG.results_dir,    exist_ok=True)
@@ -242,3 +243,39 @@ with open(cfg_path, "w") as f:
 print(f"\nDone. Best val mAP@R: {best_map:.2f}")
 print(f"History : {hist_path}")
 print(f"Config  : {cfg_path}")
+
+# ── FINAL TEST: reload best ckpt, eval on TEST split, routing analysis ──────
+# Lần test cuối cùng: nạp lại checkpoint tốt nhất, đánh giá trên TEST split,
+# và (nếu là MoE) chạy phân tích routing -> lưu heatmap + dữ liệu + metrics.
+print("\n=== Final evaluation on TEST split ===")
+best_ckpt = os.path.join(CFG.checkpoint_dir, f"best_{run_name}.pt")
+if os.path.exists(best_ckpt):
+    state = torch.load(best_ckpt, map_location=device)
+    backbone.load_state_dict(state["backbone"])
+    head.load_state_dict(state["head"])
+    print(f"Loaded best ckpt (val mAP@R={state.get('avg_mAP@R', float('nan')):.2f}) "
+          f"from {best_ckpt}")
+else:
+    print(f"[warn] best ckpt not found ({best_ckpt}); evaluating current weights.")
+
+eval_model   = _EndToEndModel(backbone, head).to(device)
+eval_model.eval()
+test_loaders = get_image_loaders("test")
+test_results = evaluate_all(eval_model, test_loaders, device)
+print(f"TEST avg mAP@R = {test_results['avg_mAP@R']:.2f}")
+
+# lưu test metrics ra CSV
+test_rows = []
+for ds_name in CFG.datasets:
+    row_t = {"dataset": ds_name}
+    row_t.update(test_results[ds_name])
+    test_rows.append(row_t)
+test_rows.append({"dataset": "average", "mAP@R": test_results["avg_mAP@R"]})
+test_csv = os.path.join(CFG.results_dir, f"test_{run_name}.csv")
+pd.DataFrame(test_rows).to_csv(test_csv, index=False)
+print(f"Test metrics : {test_csv}")
+
+# routing specialization (chỉ MoE) -> {run}_routing_heatmap.png/.pdf + matrix.csv/.npy + metrics.json
+if args.model == "moe":
+    run_routing_analysis(eval_model, test_loaders, device, run_name=run_name)
+    print(f"Routing plot+data saved under: {CFG.results_dir}/")

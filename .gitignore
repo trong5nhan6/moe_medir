@@ -6,6 +6,11 @@ results/*.csv
 results/*.tex
 results/*.pdf
 
+assets/*
+experiments/*
+docs/*
+*.md
+
 # Python
 __pycache__/
 *.py[cod]
